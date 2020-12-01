@@ -1,6 +1,8 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <Adafruit_LSM9DS0.h>
+#include <Adafruit_Sensor.h> 
 #include <Adafruit_BLE_Firmata.h>
 #if not defined (_VARIANT_ARDUINO_DUE_X_) && not defined (_VARIANT_ARDUINO_ZERO_)
 //  #include <SoftwareSerial.h>
@@ -24,7 +26,7 @@ that are used for accessories or for talking to the BLE module!
 */
 
 /************** For Bluefruit Micro or Feather 32u4 Bluefruit ************/
-uint8_t boards_digitaliopins[] = {0,1,2,3,5,6,9,10,11,12,13,A0,A1,A2,A3,A4,A5};
+uint8_t boards_digitaliopins[] = {0,1,2,3,5,6,9,10,13,A0,A1,A2,A3,A4,A5};
 
 /************** For UNO + nRF58122 SPI & shield ************/
 //uint8_t boards_digitaliopins[] = {2, 3, 5, 6, 9, 10, A0, A1, A2, A3, A4, A5}; 
@@ -35,24 +37,23 @@ uint8_t boards_digitaliopins[] = {0,1,2,3,5,6,9,10,11,12,13,A0,A1,A2,A3,A4,A5};
 #if defined(__AVR_ATmega328P__) 
   // Standard setup for UNO, no need to tweak
   uint8_t boards_analogiopins[] = {A0, A1, A2, A3, A4, A5};  // A0 == digital 14, etc
-  uint8_t boards_pwmpins[] = {3, 5, 6, 9, 10, 11};
+  uint8_t boards_pwmpins[] = {3, 5, 6, 9, 10};
   uint8_t boards_servopins[] = {9, 10};
   uint8_t boards_i2cpins[] = {SDA, SCL};
 #elif defined(__AVR_ATmega32U4__)
   uint8_t boards_analogiopins[] = {A0, A1, A2, A3, A4, A5};  // A0 == digital 14, etc
-  uint8_t boards_pwmpins[] = {3, 5, 6, 9, 10, 11, 13};
-  uint8_t boards_servopins[] = {3, 5, 6, 9, 10, 11, 13};
+  uint8_t boards_pwmpins[] = {3, 5, 6, 9, 10, 13};
+  uint8_t boards_servopins[] = {3, 5, 6, 9, 10, 13};
   uint8_t boards_i2cpins[] = {SDA, SCL};
 #elif defined(__SAMD21G18A__)
   #define SDA PIN_WIRE_SDA
   #define SCL PIN_WIRE_SCL
   uint8_t boards_analogiopins[] = {PIN_A0, PIN_A1, PIN_A2, PIN_A3, PIN_A4, PIN_A5,PIN_A6};  // A0 == digital 14, etc
-  uint8_t boards_pwmpins[] = {3,4,5,6,8,10,11,12,A0,A1,A2,A3,A4,A5};
+  uint8_t boards_pwmpins[] = {3,4,5,6,8,10,A0,A1,A2,A3,A4,A5};
   uint8_t boards_servopins[] = {9, 10};
   uint8_t boards_i2cpins[] = {SDA, SCL};
   #define NUM_DIGITAL_PINS 26
 #endif
-
 
 #define TOTAL_PINS     NUM_DIGITAL_PINS   /* highest number in boards_digitaliopins MEMEFIXME:automate */
 #define TOTAL_PORTS    ((TOTAL_PINS + 7) / 8)
@@ -651,7 +652,7 @@ void disableI2CPins() {
  *============================================================================*/
 
 void systemResetCallback()
-{
+{ 
   // initialize a defalt state
   FIRMATADEBUG.println(F("***RESET***"));
   // TODO: option to load config from EEPROM instead of default
@@ -689,7 +690,7 @@ void systemResetCallback()
 }
 
 void setup() 
-{
+{ 
   if (WAITFORSERIAL) {
     while (!FIRMATADEBUG) delay(1);
   }
@@ -735,6 +736,9 @@ void setup()
   bluefruit.println("AT+GAPDEVNAME=BLE_Firmata");
   
   BTLEstatus = false;
+
+  setupGestures();
+  // END OF ME ##################################
 }
 
 void firmataInit() {
@@ -800,70 +804,64 @@ void loop()
     bluefruit.write(FIRMATADEBUG.read());
   }
 
+  // ################################ ME #############################################################
+  handleAccelGestures();
 
-  // Read the accelerometer data here and send messages if swipe or tap is detected
-
-  // Read accelerometer data 
-  // Determine if a swipe 
-  if(swipeDetected){
-    bluefruit.write("swipe");
-  } else if(tapDetected) {
-    bluefruit.write("tap");
-  } else { }
-  
-  // Onto the Firmata main loop
-  byte pin, analogPin;
-  
-  /* DIGITALREAD - as fast as possible, check for changes and output them to the
-   * BTLE buffer using FIRMATADEBUG.print()  */
-  checkDigitalInputs();  
-
-  /* SERIALREAD - processing incoming messagse as soon as possible, while still
-   * checking digital inputs.  */
-  while(BLE_Firmata.available()) {
-    // FIRMATADEBUG.println(F("*data available*"));
-    BLE_Firmata.processInput();
-  }
-  /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
-   * 60 bytes. use a timer to sending an event character every 4 ms to
-   * trigger the buffer to dump. */
-
-  // make the sampling interval longer if we have more analog inputs!
-  uint8_t analogreportnums = 0;
-  for(uint8_t a=0; a<8; a++) {
-    if (analogInputsToReport & (1 << a)) {
-      analogreportnums++;
-    }
-  }
-
-  samplingInterval = (uint16_t)MINIMUM_SAMPLE_DELAY  + (uint16_t)ANALOG_SAMPLE_DELAY * (1+analogreportnums); 
-  
-  currentMillis = millis();
-  if (currentMillis - previousMillis > samplingInterval) {
-    previousMillis += samplingInterval;
-    /* ANALOGREAD - do all analogReads() at the configured sampling interval */
-
-    for(pin=0; pin<TOTAL_PINS; pin++) {
-      // FIRMATADEBUG.print("pin #"); FIRMATADEBUG.print(pin); FIRMATADEBUG.print(" config = "); FIRMATADEBUG.println(pinConfig[pin]);
-      if (BLE_Firmata.IS_PIN_ANALOG(pin) && (pinConfig[pin] == ANALOG)) {
-        analogPin = BLE_Firmata.PIN_TO_ANALOG(pin);
-
-        if (analogInputsToReport & (1 << analogPin)) {
-          int currentRead = analogRead(analogPin);
-          
-          if ((lastAnalogReads[analogPin] == -1) || (lastAnalogReads[analogPin] != currentRead)) {
-            //FIRMATADEBUG.print(F("Analog")); FIRMATADEBUG.print(analogPin); FIRMATADEBUG.print(F(" = ")); FIRMATADEBUG.println(currentRead);
-            BLE_Firmata.sendAnalog(analogPin, currentRead);
-            lastAnalogReads[analogPin] = currentRead;
-          }
-        }
-      }
-    }
-    // report i2c data for all device with read continuous mode enabled
-    if (queryIndex > -1) {
-      for (byte i = 0; i < queryIndex + 1; i++) {
-        readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
-      }
-    }
-  }
+  // ############################ END OF ME ########################################
+//  
+//  // Onto the Firmata main loop
+//  byte pin, analogPin;
+//  
+//  /* DIGITALREAD - as fast as possible, check for changes and output them to the
+//   * BTLE buffer using FIRMATADEBUG.print()  */
+//  checkDigitalInputs();  
+//
+//  /* SERIALREAD - processing incoming messagse as soon as possible, while still
+//   * checking digital inputs.  */
+//  while(BLE_Firmata.available()) {
+//    // FIRMATADEBUG.println(F("*data available*"));
+//    BLE_Firmata.processInput();
+//  }
+//  /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
+//   * 60 bytes. use a timer to sending an event character every 4 ms to
+//   * trigger the buffer to dump. */
+//
+//  // make the sampling interval longer if we have more analog inputs!
+//  uint8_t analogreportnums = 0;
+//  for(uint8_t a=0; a<8; a++) {
+//    if (analogInputsToReport & (1 << a)) {
+//      analogreportnums++;
+//    }
+//  }
+//
+//  samplingInterval = (uint16_t)MINIMUM_SAMPLE_DELAY  + (uint16_t)ANALOG_SAMPLE_DELAY * (1+analogreportnums); 
+//  
+//  currentMillis = millis();
+//  if (currentMillis - previousMillis > samplingInterval) {
+//    previousMillis += samplingInterval;
+//    /* ANALOGREAD - do all analogReads() at the configured sampling interval */
+//
+//    for(pin=0; pin<TOTAL_PINS; pin++) {
+//      // FIRMATADEBUG.print("pin #"); FIRMATADEBUG.print(pin); FIRMATADEBUG.print(" config = "); FIRMATADEBUG.println(pinConfig[pin]);
+//      if (BLE_Firmata.IS_PIN_ANALOG(pin) && (pinConfig[pin] == ANALOG)) {
+//        analogPin = BLE_Firmata.PIN_TO_ANALOG(pin);
+//
+//        if (analogInputsToReport & (1 << analogPin)) {
+//          int currentRead = analogRead(analogPin);
+//          
+//          if ((lastAnalogReads[analogPin] == -1) || (lastAnalogReads[analogPin] != currentRead)) {
+//            //FIRMATADEBUG.print(F("Analog")); FIRMATADEBUG.print(analogPin); FIRMATADEBUG.print(F(" = ")); FIRMATADEBUG.println(currentRead);
+//            BLE_Firmata.sendAnalog(analogPin, currentRead);
+//            lastAnalogReads[analogPin] = currentRead;
+//          }
+//        }
+//      }
+//    }
+//    // report i2c data for all device with read continuous mode enabled
+//    if (queryIndex > -1) {
+//      for (byte i = 0; i < queryIndex + 1; i++) {
+//        readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
+//      }
+//    }
+//  }
 }
