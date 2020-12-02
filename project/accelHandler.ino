@@ -35,16 +35,14 @@ void handleAccelGestures(){
 
   if (lsm.gyroData.z > 15000) {
     FIRMATADEBUG.println("Left Swipe");
-    bluefruit.write("leftswipe");
+    bluefruit.write("l");
   } else if (lsm.gyroData.z < -15000) {
     FIRMATADEBUG.println("Right Swipe");
-    bluefruit.write("rightswipe");
+    bluefruit.write("r");
   }
-
   if (lsm.gyroData.y > 8000) {
     FIRMATADEBUG.println("Toe Tap");
-    bluefruit.write("tap");
-
+    bluefruit.write("t");
   }
 
   delay(200);

@@ -11,7 +11,7 @@
 // Change this to whatever is the Serial console you want, either Serial or SerialUSB
 #define FIRMATADEBUG    Serial
 // Pause for Serial console before beginning?
-#define WAITFORSERIAL   true
+#define WAITFORSERIAL   false
 // Print all BLE interactions?
 #define VERBOSE_MODE    false
 
@@ -70,25 +70,7 @@ uint8_t boards_digitaliopins[] = {0,1,2,3,5,6,9,10,13,A0,A1,A2,A3,A4,A5};
 #include "BluefruitConfig.h"
 
 
-// Create the bluefruit object, either software serial...uncomment these lines
-/*
-SoftwareSerial bluefruitSS = SoftwareSerial(BLUEFRUIT_SWUART_TXD_PIN, BLUEFRUIT_SWUART_RXD_PIN);
-
-Adafruit_BluefruitLE_UART bluefruit(bluefruitSS, BLUEFRUIT_UART_MODE_PIN,
-                      BLUEFRUIT_UART_CTS_PIN, BLUEFRUIT_UART_RTS_PIN);
-*/
-
-/* ...or hardware serial, which does not need the RTS/CTS pins. Uncomment this line */
  Adafruit_BluefruitLE_UART bluefruit(BLUEFRUIT_HWSERIAL_NAME, BLUEFRUIT_UART_MODE_PIN);
-
-/* ...hardware SPI, using SCK/MOSI/MISO hardware SPI pins and then user selected CS/IRQ/RST */
-//Adafruit_BluefruitLE_SPI bluefruit(BLUEFRUIT_SPI_CS, BLUEFRUIT_SPI_IRQ, BLUEFRUIT_SPI_RST);
-
-/* ...software SPI, using SCK/MOSI/MISO user-defined SPI pins and then user selected CS/IRQ/RST */
-//Adafruit_BluefruitLE_SPI bluefruit(BLUEFRUIT_SPI_SCK, BLUEFRUIT_SPI_MISO,
-//                             BLUEFRUIT_SPI_MOSI, BLUEFRUIT_SPI_CS,
-//                             BLUEFRUIT_SPI_IRQ, BLUEFRUIT_SPI_RST);
-
 
 #define AUTO_INPUT_PULLUPS true
 
@@ -127,7 +109,6 @@ unsigned long previousMillis;       // for comparison with currentMillis
 int samplingInterval = 200;          // how often to run the main loop (in ms)
 #define MINIMUM_SAMPLE_DELAY 150
 #define ANALOG_SAMPLE_DELAY 50
-
 
 /* i2c data */
 struct i2c_device_info {
@@ -365,8 +346,6 @@ void digitalWriteCallback(byte port, int value)
 // -----------------------------------------------------------------------------
 /* sets bits in a bit array (int) to toggle the reporting of the analogIns
  */
-//void FirmataClass::setAnalogPinReporting(byte pin, byte state) {
-//}
 void reportAnalogCallback(byte analogPin, int value)
 {
   if (analogPin < BLE_Firmata._num_analogiopins) {
@@ -378,7 +357,6 @@ void reportAnalogCallback(byte analogPin, int value)
       FIRMATADEBUG.print(F("Will report analog pin #")); FIRMATADEBUG.println(analogPin);
     }
   }
-  // TODO: save status to EEPROM here, if changed
 }
 
 void reportDigitalCallback(byte port, int value)
@@ -387,12 +365,6 @@ void reportDigitalCallback(byte port, int value)
     //FIRMATADEBUG.print(F("Will report 0x")); FIRMATADEBUG.print(value, HEX); FIRMATADEBUG.print(F(" digital mask on port ")); FIRMATADEBUG.println(port);
     reportPINs[port] = (byte)value;
   }
-  // do not disable analog reporting on these 8 pins, to allow some
-  // pins used for digital, others analog.  Instead, allow both types
-  // of reporting to be enabled, but check if the pin is configured
-  // as analog when sampling the analog inputs.  Likewise, while
-  // scanning digital pins, portConfigInputs will mask off values from any
-  // pins configured as analog
 }
 
 /*==============================================================================
@@ -412,7 +384,6 @@ void sysexCallback(byte command, byte argc, byte *argv)
   case I2C_REQUEST:
     mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
     if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
-      //BLE_Firmata.sendString("10-bit addressing mode is not yet supported");
       FIRMATADEBUG.println(F("10-bit addressing mode is not yet supported"));
       return;
     }
@@ -677,16 +648,6 @@ void systemResetCallback()
   }
   // by default, do not report any analog inputs
   analogInputsToReport = 0;
-
-  /* send digital inputs to set the initial state on the host computer,
-   * since once in the loop(), this firmware will only send on change */
-  /*
-  TODO: this can never execute, since no pins default to digital input
-        but it will be needed when/if we support EEPROM stored config
-  for (byte i=0; i < TOTAL_PORTS; i++) {
-    outputPort(i, readPort(i, portConfigInputs[i]), true);
-  }
-  */
 }
 
 void setup() 
@@ -804,64 +765,8 @@ void loop()
     bluefruit.write(FIRMATADEBUG.read());
   }
 
-  // ################################ ME #############################################################
+
+  // Function for checking accelerometer for any detected actions
   handleAccelGestures();
 
-  // ############################ END OF ME ########################################
-//  
-//  // Onto the Firmata main loop
-//  byte pin, analogPin;
-//  
-//  /* DIGITALREAD - as fast as possible, check for changes and output them to the
-//   * BTLE buffer using FIRMATADEBUG.print()  */
-//  checkDigitalInputs();  
-//
-//  /* SERIALREAD - processing incoming messagse as soon as possible, while still
-//   * checking digital inputs.  */
-//  while(BLE_Firmata.available()) {
-//    // FIRMATADEBUG.println(F("*data available*"));
-//    BLE_Firmata.processInput();
-//  }
-//  /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
-//   * 60 bytes. use a timer to sending an event character every 4 ms to
-//   * trigger the buffer to dump. */
-//
-//  // make the sampling interval longer if we have more analog inputs!
-//  uint8_t analogreportnums = 0;
-//  for(uint8_t a=0; a<8; a++) {
-//    if (analogInputsToReport & (1 << a)) {
-//      analogreportnums++;
-//    }
-//  }
-//
-//  samplingInterval = (uint16_t)MINIMUM_SAMPLE_DELAY  + (uint16_t)ANALOG_SAMPLE_DELAY * (1+analogreportnums); 
-//  
-//  currentMillis = millis();
-//  if (currentMillis - previousMillis > samplingInterval) {
-//    previousMillis += samplingInterval;
-//    /* ANALOGREAD - do all analogReads() at the configured sampling interval */
-//
-//    for(pin=0; pin<TOTAL_PINS; pin++) {
-//      // FIRMATADEBUG.print("pin #"); FIRMATADEBUG.print(pin); FIRMATADEBUG.print(" config = "); FIRMATADEBUG.println(pinConfig[pin]);
-//      if (BLE_Firmata.IS_PIN_ANALOG(pin) && (pinConfig[pin] == ANALOG)) {
-//        analogPin = BLE_Firmata.PIN_TO_ANALOG(pin);
-//
-//        if (analogInputsToReport & (1 << analogPin)) {
-//          int currentRead = analogRead(analogPin);
-//          
-//          if ((lastAnalogReads[analogPin] == -1) || (lastAnalogReads[analogPin] != currentRead)) {
-//            //FIRMATADEBUG.print(F("Analog")); FIRMATADEBUG.print(analogPin); FIRMATADEBUG.print(F(" = ")); FIRMATADEBUG.println(currentRead);
-//            BLE_Firmata.sendAnalog(analogPin, currentRead);
-//            lastAnalogReads[analogPin] = currentRead;
-//          }
-//        }
-//      }
-//    }
-//    // report i2c data for all device with read continuous mode enabled
-//    if (queryIndex > -1) {
-//      for (byte i = 0; i < queryIndex + 1; i++) {
-//        readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
-//      }
-//    }
-//  }
 }
